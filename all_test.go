@@ -3,6 +3,7 @@ package copy
 import (
 	"errors"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,18 +13,39 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	setup(m)
-	code := m.Run()
+	var code int
+	if err := setup(m); err != nil {
+		log.Printf("failed setup: %v", err)
+		code = 1
+	} else {
+		code = m.Run()
+	}
 	teardown(m)
 	os.Exit(code)
 }
 
-func setup(m *testing.M) {
-	os.MkdirAll("testdata.copy", os.ModePerm)
-	os.Symlink("../../testdata/case01", "testdata/case03/case01")
-	os.Chmod("testdata/case07/dir_0500", 0500)
-	os.Chmod("testdata/case07/file_0444", 0444)
-	os.Symlink("testdata/case01", "testdata/case09/case01")
+func setup(m *testing.M) error {
+	if err := os.MkdirAll("testdata.copy", os.ModePerm); err != nil {
+		return err
+	}
+
+	if err := os.Symlink("../../testdata/case01", "testdata/case03/case01"); err != nil {
+		return err
+	}
+
+	if err := os.Chmod("testdata/case07/dir_0500", 0500); err != nil {
+		return err
+	}
+
+	if err := os.Chmod("testdata/case07/file_0444", 0444); err != nil {
+		return err
+	}
+
+	if err := os.Symlink("testdata/case01", "testdata/case09/case01"); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func teardown(m *testing.M) {
@@ -78,6 +100,12 @@ func TestCopy(t *testing.T) {
 		info, err := os.Lstat("testdata.copy/case03/case01")
 		Expect(t, err).ToBe(nil)
 		Expect(t, info.Mode()&os.ModeSymlink).Not().ToBe(0)
+	})
+
+	When(t, "copying symbolic link to not permitted location", func(t *testing.T) {
+		err = Copy("testdata/case03/case01", "/case03/case01.2")
+		Expect(t, err).Not().ToBe(nil)
+		Expect(t, err).TypeOf("*os.PathError")
 	})
 
 	When(t, "symlink with Opt.OnSymlink provided", func(t *testing.T) {
@@ -227,5 +255,10 @@ func TestCopy(t *testing.T) {
 		opt := Options{OnSymlink: func(string) SymlinkAction { return Deep }}
 		err := Copy("testdata/case09", "testdata.copy/case09.deep", opt)
 		Expect(t, os.IsNotExist(err)).ToBe(true)
+	})
+
+	When(t, "copying symbolic link where intermediate directories don't exist yet", func(t *testing.T) {
+		err = Copy("testdata/case03/case01", "testdata.copy/case10/case10.1/destination")
+		Expect(t, err).ToBe(nil)
 	})
 }
